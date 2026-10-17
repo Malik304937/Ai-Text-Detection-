@@ -15,10 +15,11 @@ import {
   Edit3,
   AlertTriangle,
   X,
-  FileDown
+  FileDown,
+  Share2
 } from 'lucide-react';
 import { HistoryRecord, AssessmentType } from '../types';
-import { downloadPdfReport } from '../utils/pdfReport';
+import { downloadPdfReport, shareReportSheet } from '../utils/pdfReport';
 
 interface HistoryViewProps {
   records: HistoryRecord[];
@@ -241,6 +242,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => shareReportSheet(rec)}
+                    title="Share report"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-violet-300 transition-colors"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                  </button>
+
                   <button
                     onClick={() => downloadPdfReport(rec)}
                     title="Download PDF"

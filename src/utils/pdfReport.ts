@@ -1,11 +1,13 @@
 import jsPDF from 'jspdf';
+import { Share } from '@capacitor/share';
+import { Capacitor } from '@capacitor/core';
 import { AnalysisResult } from '../types';
 
-export function downloadTxtReport(result: AnalysisResult): void {
+export function generateTxtContent(result: AnalysisResult): string {
   const divider = '='.repeat(70);
   const subDivider = '-'.repeat(70);
 
-  const content = [
+  return [
     divider,
     'AI TEXT DETECTIVE — FORENSIC STYLOMETRIC ANALYSIS REPORT',
     divider,
@@ -65,19 +67,38 @@ export function downloadTxtReport(result: AnalysisResult): void {
     'Always use human editorial judgment in conjunction with this software.',
     divider
   ].join('\n');
+}
+
+export async function downloadTxtReport(result: AnalysisResult): Promise<void> {
+  const content = generateTxtContent(result);
+  const filename = `AI-Text-Detective-Report-${Date.now()}.txt`;
+
+  // On Native Android, trigger Share sheet if possible
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await Share.share({
+        title: 'AI Text Detective Report',
+        text: content,
+        dialogTitle: 'Share Forensic Report'
+      });
+      return;
+    } catch (e) {
+      // Fallback to web download
+    }
+  }
 
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `AI-Text-Detective-Report-${Date.now()}.txt`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
-export function downloadPdfReport(result: AnalysisResult): void {
+export function buildPdfDocument(result: AnalysisResult): jsPDF {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
@@ -116,8 +137,8 @@ export function downloadPdfReport(result: AnalysisResult): void {
   y = 95;
 
   // Metadata Card
-  doc.setFillColor(248, 250, 252); // slate-50
-  doc.setDrawColor(226, 232, 240); // slate-200
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
   doc.roundedRect(margin, y, contentWidth, 54, 4, 4, 'FD');
 
   doc.setFontSize(8.5);
@@ -134,20 +155,20 @@ export function downloadPdfReport(result: AnalysisResult): void {
   y += 68;
 
   // Assessment Banner
-  let badgeFill = [241, 245, 249]; // slate
+  let badgeFill = [241, 245, 249];
   let badgeStroke = [148, 163, 184];
   let badgeText = [51, 65, 85];
 
   if (result.assessment === 'Possibly AI-generated') {
-    badgeFill = [254, 242, 242]; // red/rose-50
+    badgeFill = [254, 242, 242];
     badgeStroke = [248, 113, 113];
     badgeText = [153, 27, 27];
   } else if (result.assessment === 'Possibly human-written') {
-    badgeFill = [240, 253, 244]; // emerald-50
+    badgeFill = [240, 253, 244];
     badgeStroke = [74, 222, 128];
     badgeText = [22, 101, 52];
   } else {
-    badgeFill = [248, 250, 252]; // slate-50
+    badgeFill = [248, 250, 252];
     badgeStroke = [203, 213, 225];
     badgeText = [71, 85, 105];
   }
@@ -265,8 +286,8 @@ export function downloadPdfReport(result: AnalysisResult): void {
 
   // Mandatory Disclaimer
   checkPageBreak(70);
-  doc.setFillColor(254, 243, 199); // amber-100
-  doc.setDrawColor(245, 158, 11); // amber-500
+  doc.setFillColor(254, 243, 199);
+  doc.setDrawColor(245, 158, 11);
   doc.roundedRect(margin, y, contentWidth, 54, 4, 4, 'FD');
 
   doc.setFont('helvetica', 'bold');
@@ -297,5 +318,51 @@ export function downloadPdfReport(result: AnalysisResult): void {
     );
   }
 
-  doc.save(`AI-Text-Detective-Report-${Date.now()}.pdf`);
+  return doc;
+}
+
+export async function downloadPdfReport(result: AnalysisResult): Promise<void> {
+  const doc = buildPdfDocument(result);
+  const filename = `AI-Text-Detective-Report-${Date.now()}.pdf`;
+
+  // On Native Android, trigger Share Sheet if available
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const dataUri = doc.output('datauristring');
+      await Share.share({
+        title: 'AI Text Detective PDF Report',
+        text: `Forensic Stylometric Assessment: ${result.assessment}`,
+        url: dataUri,
+        dialogTitle: 'Share PDF Report'
+      });
+      return;
+    } catch (e) {
+      // Fallback
+    }
+  }
+
+  doc.save(filename);
+}
+
+export async function shareReportSheet(result: AnalysisResult): Promise<void> {
+  const summaryText = `AI Text Detective Report\nDocument: ${result.title}\nAssessment: ${result.assessment}\nSummary: ${result.summary}\nDate: ${new Date(result.analyzedAt).toLocaleDateString()}`;
+
+  try {
+    if (Capacitor.isNativePlatform()) {
+      await Share.share({
+        title: 'AI Text Detective Report',
+        text: summaryText,
+        dialogTitle: 'Share Analysis Report'
+      });
+    } else if (navigator.share) {
+      await navigator.share({
+        title: 'AI Text Detective Report',
+        text: summaryText
+      });
+    } else {
+      await downloadTxtReport(result);
+    }
+  } catch (err) {
+    console.warn('Share dismissed or unavailable:', err);
+  }
 }

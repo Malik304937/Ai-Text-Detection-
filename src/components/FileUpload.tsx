@@ -9,9 +9,13 @@ import {
   X,
   Sparkles,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Smartphone
 } from 'lucide-react';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
 import { extractTextFromFile } from '../utils/fileExtractors';
+import { extractTextFromImage } from '../utils/ocr';
 import { OCRProgress } from '../types';
 
 interface FileUploadProps {
@@ -20,7 +24,8 @@ interface FileUploadProps {
 
 export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [fileDetails, setFileDetails] = useState<{ size: number; isImage: boolean } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<OCRProgress>({ status: '', progress: 0 });
@@ -52,9 +57,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
       return;
     }
 
-    setSelectedFile(file);
+    setSelectedFileName(file.name);
+    setFileDetails({ size: file.size, isImage: file.type.startsWith('image/') });
 
-    // If it's an image, create a preview
     if (file.type.startsWith('image/')) {
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
@@ -62,7 +67,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
       setPreviewUrl(null);
     }
 
-    // Process file automatically
     setIsProcessing(true);
     setProgress({ status: 'Starting file parsing...', progress: 0.1 });
 
@@ -83,6 +87,41 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
       setErrorMessage(err.message || 'Failed to extract text from the file.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Direct Gallery Pick for Android & mobile
+  const handlePickFromGallery = async () => {
+    setErrorMessage(null);
+    try {
+      const photo = await CapCamera.getPhoto({
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Photos,
+        quality: 92
+      });
+
+      if (photo.dataUrl) {
+        setSelectedFileName(`Gallery_Image_${Date.now()}.jpg`);
+        setFileDetails({ size: Math.round(photo.dataUrl.length * 0.75), isImage: true });
+        setPreviewUrl(photo.dataUrl);
+        setIsProcessing(true);
+        setProgress({ status: 'Scanning photo with OCR...', progress: 0.2 });
+
+        const text = await extractTextFromImage(photo.dataUrl, (p) => setProgress(p));
+        if (!text || text.trim().length === 0) {
+          setErrorMessage('No readable text recognized in the selected photo.');
+          setIsProcessing(false);
+          return;
+        }
+
+        setExtractedText(text);
+        setSourceType('upload_image');
+        setIsProcessing(false);
+      }
+    } catch (err: any) {
+      if (err?.message !== 'User cancelled photos app') {
+        setErrorMessage(err?.message || 'Could not access photo gallery.');
+      }
     }
   };
 
@@ -111,11 +150,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
   };
 
   const handleRemove = () => {
-    setSelectedFile(null);
-    if (previewUrl) {
+    setSelectedFileName(null);
+    setFileDetails(null);
+    if (previewUrl && previewUrl.startsWith('blob:')) {
       URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
     }
+    setPreviewUrl(null);
     setExtractedText('');
     setErrorMessage(null);
     setIsProcessing(false);
@@ -130,7 +170,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
     if (!extractedText.trim()) return;
     onTextExtracted(
       extractedText,
-      selectedFile ? selectedFile.name : 'Uploaded File',
+      selectedFileName || 'Uploaded Document',
       sourceType
     );
   };
@@ -149,7 +189,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
           </p>
         </div>
 
-        {selectedFile && (
+        {selectedFileName && (
           <button
             onClick={handleRemove}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-800 text-slate-300 hover:text-rose-400 hover:bg-rose-950/40 border border-slate-700 transition-colors w-fit"
@@ -172,13 +212,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
       )}
 
       {/* Drag & Drop Area */}
-      {!selectedFile && (
+      {!selectedFileName && (
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`mt-5 border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-all ${
+          className={`mt-5 border-2 border-dashed rounded-2xl p-6 sm:p-10 text-center transition-all ${
             isDragging
               ? 'border-indigo-500 bg-indigo-500/10 scale-[1.01]'
               : 'border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-950/70'
@@ -197,20 +236,32 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
           </div>
 
           <h3 className="text-lg font-bold text-white mb-2">
-            Drag & drop your document or image here
+            Upload document or screenshot
           </h3>
           <p className="text-sm text-slate-400 max-w-md mx-auto mb-5">
-            Supports PDF, DOCX, TXT, MD, JPG, PNG, and WEBP files up to 25MB.
+            Select PDF, DOCX, TXT, MD, JPG, PNG, or WEBP files up to 25MB.
           </p>
 
-          <button
-            type="button"
-            className="px-5 py-2.5 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition-all"
-          >
-            Browse Files
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition-all active:scale-95"
+            >
+              Browse Files (PDF, DOCX, TXT)
+            </button>
 
-          <div className="flex items-center justify-center gap-6 mt-8 text-xs text-slate-400 font-medium">
+            <button
+              type="button"
+              onClick={handlePickFromGallery}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-semibold text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Smartphone className="w-4 h-4 text-violet-400" />
+              Pick from Photos / Gallery
+            </button>
+          </div>
+
+          <div className="flex items-center justify-center gap-6 mt-8 text-xs text-slate-400 font-medium flex-wrap">
             <span className="flex items-center gap-1.5">
               <FileText className="w-3.5 h-3.5 text-blue-400" /> PDF & DOCX
             </span>
@@ -247,9 +298,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
       )}
 
       {/* Extracted Text Review Area */}
-      {selectedFile && !isProcessing && extractedText && (
+      {selectedFileName && !isProcessing && extractedText && (
         <div className="mt-5 space-y-4">
-          {/* File summary badge */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-slate-950 border border-slate-800 gap-3">
             <div className="flex items-center gap-3">
               {previewUrl ? (
@@ -265,10 +315,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
               )}
               <div>
                 <p className="text-sm font-semibold text-white truncate max-w-xs sm:max-w-md">
-                  {selectedFile.name}
+                  {selectedFileName}
                 </p>
                 <p className="text-xs text-slate-400">
-                  {(selectedFile.size / 1024).toFixed(1)} KB • {wordCount} words extracted
+                  {fileDetails ? (fileDetails.size / 1024).toFixed(1) : '0'} KB • {wordCount} words extracted
                 </p>
               </div>
             </div>
@@ -276,7 +326,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Extracted
+                Ready for Analysis
               </span>
             </div>
           </div>
@@ -285,12 +335,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onTextExtracted }) => {
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-bold text-white flex items-center gap-1.5">
                 Review & Edit Extracted Text
-                <span className="text-xs font-normal text-slate-400">
-                  (Make sure formatting and text flow accurately reflect your document)
-                </span>
               </label>
               <span className="text-xs font-mono text-slate-400">
-                {wordCount} words • {extractedText.length} characters
+                {wordCount} words
               </span>
             </div>
 

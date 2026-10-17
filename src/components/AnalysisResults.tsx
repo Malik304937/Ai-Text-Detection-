@@ -15,10 +15,11 @@ import {
   Activity,
   Maximize2,
   Calendar,
-  BookOpen
+  BookOpen,
+  Share2
 } from 'lucide-react';
 import { AnalysisResult } from '../types';
-import { downloadPdfReport, downloadTxtReport } from '../utils/pdfReport';
+import { downloadPdfReport, downloadTxtReport, shareReportSheet } from '../utils/pdfReport';
 
 interface AnalysisResultsProps {
   result: AnalysisResult;
@@ -180,6 +181,14 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({
             >
               <FileDown className="w-4 h-4" />
               Download PDF Report
+            </button>
+
+            <button
+              onClick={() => shareReportSheet(result)}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-violet-600/30 hover:bg-violet-600/40 text-violet-200 border border-violet-500/40 transition-colors"
+            >
+              <Share2 className="w-3.5 h-3.5 text-violet-300" />
+              Share Report
             </button>
 
             <button
@@ -406,7 +415,14 @@ export const AnalysisResults: React.FC<AnalysisResultsProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <button
+            onClick={() => shareReportSheet(result)}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-violet-600/30 hover:bg-violet-600/40 text-violet-200 border border-violet-500/40 flex items-center gap-1.5 transition-colors"
+          >
+            <Share2 className="w-3.5 h-3.5 text-violet-300" />
+            Share
+          </button>
           <button
             onClick={() => downloadPdfReport(result)}
             className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5"

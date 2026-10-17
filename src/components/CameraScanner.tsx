@@ -7,13 +7,13 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle2,
-  SlidersHorizontal,
   SwitchCamera,
   FileText,
-  HelpCircle,
-  Eye,
-  Loader2
+  Loader2,
+  Smartphone
 } from 'lucide-react';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
 import { extractTextFromImage, cancelActiveOCR } from '../utils/ocr';
 import { OCRProgress } from '../types';
 
@@ -36,6 +36,8 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  const isNative = Capacitor.isNativePlatform();
 
   // Stop camera tracks cleanly
   const stopCamera = useCallback(() => {
@@ -61,7 +63,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
     };
   }, [stopCamera]);
 
-  // Enumerate devices to check if multiple cameras exist
+  // Enumerate devices for front/rear switching
   useEffect(() => {
     if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
       navigator.mediaDevices
@@ -74,13 +76,36 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
     }
   }, []);
 
-  // Start Camera
+  // Request native permission if on native Capacitor
+  const ensureNativePermission = async (): Promise<boolean> => {
+    if (!isNative) return true;
+    try {
+      const check = await CapCamera.checkPermissions();
+      if (check.camera === 'granted') return true;
+
+      const req = await CapCamera.requestPermissions({ permissions: ['camera'] });
+      return req.camera === 'granted';
+    } catch (e) {
+      console.warn('Capacitor camera permission check warning:', e);
+      return true;
+    }
+  };
+
+  // Start in-app live camera viewfinder preview
   const startCamera = async (targetFacing = facingMode) => {
     setErrorMessage(null);
     stopCamera();
 
+    const hasPermission = await ensureNativePermission();
+    if (!hasPermission) {
+      setErrorMessage(
+        'Camera permission was denied. Please allow Camera permission in your Android App Settings.'
+      );
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setErrorMessage('Your browser does not support camera access via MediaDevices API.');
+      setErrorMessage('Camera access is not supported by this browser engine.');
       return;
     }
 
@@ -107,20 +132,53 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
       console.error('Camera access error:', err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         setErrorMessage(
-          'Camera permission was denied. Please click the camera/lock icon in your browser address bar to allow camera access.'
+          'Camera permission was denied. Please grant camera access in your browser or Android device settings.'
         );
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setErrorMessage('No camera hardware was detected on this device.');
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        setErrorMessage('Camera is currently in use by another application or browser tab.');
+        setErrorMessage('Camera is currently busy or in use by another application.');
       } else {
-        setErrorMessage(err.message || 'Unable to access the camera.');
+        setErrorMessage(err.message || 'Unable to start camera viewfinder.');
       }
       setCameraState('idle');
     }
   };
 
-  // Flip front/back camera
+  // Native Android System Camera Snapshot (uses Android's native camera activity)
+  const takeNativeSnapshot = async () => {
+    setErrorMessage(null);
+    stopCamera();
+
+    try {
+      const hasPermission = await ensureNativePermission();
+      if (!hasPermission) {
+        setErrorMessage('Camera permission was denied in Android settings.');
+        return;
+      }
+
+      const photo = await CapCamera.getPhoto({
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Camera,
+        quality: 92,
+        allowEditing: false
+      });
+
+      if (photo.dataUrl) {
+        setCapturedImageUrl(photo.dataUrl);
+        setCameraState('captured');
+        setErrorMessage(null);
+      }
+    } catch (err: any) {
+      // User cancelled or error
+      if (err?.message !== 'User cancelled photos app') {
+        console.error('Native photo error:', err);
+        setErrorMessage(err?.message || 'Could not capture photo using native camera.');
+      }
+    }
+  };
+
+  // Flip front/back camera in viewfinder
   const toggleFacingMode = () => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment';
     setFacingMode(nextMode);
@@ -129,7 +187,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
     }
   };
 
-  // Capture Photo
+  // Capture Photo from viewfinder
   const capturePhoto = () => {
     if (!videoRef.current) return;
 
@@ -151,7 +209,6 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     setCapturedImageUrl(dataUrl);
 
-    // Pause video stream or leave track running for quick retake
     setCameraState('captured');
     setErrorMessage(null);
   };
@@ -186,7 +243,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
 
       if (!text || text.trim().length === 0) {
         setErrorMessage(
-          'No readable text could be recognized. The photo might be blurry, underexposed, or the font may be indistinct. Please retake with better lighting.'
+          'No readable text could be recognized. The photo might be blurry or the lighting too low. Please retake with better focus and lighting.'
         );
         setCameraState('captured');
         return;
@@ -195,7 +252,6 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
       setExtractedText(text);
       setIsEditableReview(true);
       setCameraState('captured');
-      // Stop the hardware camera now to save battery and privacy
       stopCamera();
     } catch (err: any) {
       setErrorMessage(err.message || 'OCR extraction failed. Please try capturing again.');
@@ -203,13 +259,12 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
     }
   };
 
-  // Handle final submission to analysis
   const handleProceedToAnalysis = () => {
     if (!extractedText.trim()) {
       setErrorMessage('Please ensure there is text to analyze.');
       return;
     }
-    onTextExtracted(extractedText, 'Live Camera Capture');
+    onTextExtracted(extractedText, 'Camera OCR Capture');
   };
 
   const wordCount = extractedText.trim() ? extractedText.trim().split(/\s+/).length : 0;
@@ -221,23 +276,33 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Camera className="w-5 h-5 text-indigo-400" />
-            Live Camera Optical Scanner
+            Live Camera OCR Scanner
           </h2>
           <p className="text-sm text-slate-400">
-            Scan physical printed pages, books, essays, or display screens with instant OCR
+            Scan physical printed pages, exam papers, books, or screens
           </p>
         </div>
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap">
           {cameraState === 'idle' && (
-            <button
-              onClick={() => startCamera()}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/25 transition-all active:scale-95"
-            >
-              <Play className="w-4 h-4" />
-              Start Camera
-            </button>
+            <>
+              <button
+                onClick={() => startCamera()}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/25 transition-all active:scale-95"
+              >
+                <Play className="w-4 h-4" />
+                Start Camera
+              </button>
+
+              <button
+                onClick={takeNativeSnapshot}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all active:scale-95"
+              >
+                <Smartphone className="w-4 h-4 text-indigo-400" />
+                Snap Photo
+              </button>
+            </>
           )}
 
           {cameraState === 'streaming' && (
@@ -294,7 +359,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
                 onClick={stopCamera}
                 className="px-3 py-2 rounded-xl text-sm text-slate-400 hover:text-slate-200"
               >
-                Close Camera
+                Close
               </button>
             </>
           )}
@@ -306,7 +371,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
         <div className="mt-4 p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
           <div className="text-sm">
-            <p className="font-semibold text-rose-200">Camera or Scanning Notice</p>
+            <p className="font-semibold text-rose-200">Camera Notice</p>
             <p className="mt-0.5 text-rose-300/90">{errorMessage}</p>
           </div>
         </div>
@@ -315,23 +380,33 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
       {/* Main View Area */}
       <div className="mt-5">
         {cameraState === 'idle' && (
-          <div className="border-2 border-dashed border-slate-800 rounded-2xl p-8 sm:p-12 text-center bg-slate-950/40 flex flex-col items-center justify-center min-h-[340px]">
+          <div className="border-2 border-dashed border-slate-800 rounded-2xl p-8 sm:p-12 text-center bg-slate-950/40 flex flex-col items-center justify-center min-h-[320px]">
             <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
               <Camera className="w-8 h-8" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Live Camera Text Scanner</h3>
+            <h3 className="text-lg font-bold text-white mb-2">Live Camera & OCR Scanner</h3>
             <p className="text-sm text-slate-400 max-w-md mx-auto mb-6">
-              Grant camera access to aim at books, printouts, or screens. Take a still snapshot, extract text cleanly with OCR, correct any words, and run forensic stylometric detection.
+              Launch the live viewfinder or take a high-resolution photo. Extract readable text with neural OCR and review every word before stylometric detection.
             </p>
-            <button
-              onClick={() => startCamera()}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/30 transition-all hover:scale-105"
-            >
-              <Play className="w-4 h-4" />
-              Launch Camera Scanner
-            </button>
-            <p className="text-xs text-slate-400 mt-4">
-              Camera frames are processed in-browser. Zero continuous frame uploads.
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button
+                onClick={() => startCamera()}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+              >
+                <Play className="w-4 h-4" />
+                Open Live Viewfinder
+              </button>
+
+              <button
+                onClick={takeNativeSnapshot}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all active:scale-95"
+              >
+                <Smartphone className="w-4 h-4 text-indigo-400" />
+                Take Photo
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-4">
+              Processed locally in-app. Zero continuous frame uploads.
             </p>
           </div>
         )}
@@ -342,7 +417,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
             ref={videoRef}
             playsInline
             muted
-            className="w-full h-auto max-h-[520px] object-contain mx-auto"
+            className="w-full h-auto max-h-[500px] object-contain mx-auto"
           />
 
           {/* Alignment Target Frame Overlay */}
@@ -351,7 +426,6 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
               <div className="absolute top-2 left-2 px-2.5 py-1 rounded bg-black/70 text-[11px] font-mono text-indigo-300">
                 ALIGN DOCUMENT HERE
               </div>
-              {/* Corner accents */}
               <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-indigo-400" />
               <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-indigo-400" />
               <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-indigo-400" />
@@ -372,11 +446,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
 
         {/* OCR Scanning Progress Screen */}
         {cameraState === 'scanning_ocr' && (
-          <div className="rounded-2xl bg-slate-950 p-8 sm:p-12 text-center border border-indigo-500/30 flex flex-col items-center justify-center min-h-[340px]">
+          <div className="rounded-2xl bg-slate-950 p-8 text-center border border-indigo-500/30 flex flex-col items-center justify-center min-h-[300px]">
             <Loader2 className="w-10 h-10 text-indigo-400 animate-spin mb-4" />
-            <h3 className="text-lg font-bold text-white mb-2">Analyzing Image Characters...</h3>
+            <h3 className="text-lg font-bold text-white mb-2">Analyzing Document Text...</h3>
             <p className="text-sm text-slate-400 max-w-sm mx-auto mb-6">
-              {ocrProgress.status || 'Extracting readable text with high-precision neural OCR...'}
+              {ocrProgress.status || 'Extracting characters with neural OCR...'}
             </p>
             <div className="w-full max-w-md bg-slate-800 rounded-full h-2.5 overflow-hidden mb-2">
               <div
@@ -397,7 +471,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
               <img
                 src={capturedImageUrl}
                 alt="Captured still"
-                className="max-h-[380px] w-auto object-contain"
+                className="max-h-[360px] w-auto object-contain"
               />
             </div>
 
@@ -405,17 +479,17 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
               <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700">
                 <h4 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  Image Captured Successfully
+                  Photo Ready for OCR
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Verify that text is sharp and readable. If it is blurry or angled poorly, click Retake Photo.
+                  Ensure the text is legible and well-lit. Click Scan Text to extract words, or Retake Photo if blurry.
                 </p>
               </div>
 
               <div className="flex flex-col gap-2.5">
                 <button
                   onClick={scanText}
-                  className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all"
+                  className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all active:scale-95"
                 >
                   <Sparkles className="w-4 h-4" />
                   Scan Text with OCR
@@ -440,12 +514,12 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-sm font-bold text-white">Extracted Text Review</span>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-400 hidden sm:inline">
                   (Correct any OCR typos before forensic analysis)
                 </span>
               </div>
               <div className="text-xs font-mono text-slate-400">
-                {wordCount} words • {extractedText.length} characters
+                {wordCount} words
               </div>
             </div>
 

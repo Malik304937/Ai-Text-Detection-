@@ -1,0 +1,14 @@
+{
+	"appId": "com.aitextdetective.app",
+	"appName": "AI Text Detective",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true
+	},
+	"plugins": {
+		"Camera": {
+			"permissionsType": "camera"
+		}
+	}
+}

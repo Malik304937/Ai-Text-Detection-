@@ -122,7 +122,11 @@ export const MethodologyView: React.FC = () => {
           </li>
           <li className="flex items-start gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span><strong>Browser-Exclusive History:</strong> Your past scans and reports reside exclusively in your local device's IndexedDB. You can inspect, export, or permanently delete them at any time.</span>
+            <span><strong>Browser & Android Local History:</strong> Your past scans and reports reside exclusively in your local device's IndexedDB. You can inspect, export, or permanently delete them at any time.</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <span><strong>Android APK Zero Key Exposure:</strong> The native Android APK bundle contains zero API keys or credentials. All linguistic stylometric reasoning is executed via encrypted server-side proxy routes.</span>
           </li>
         </ul>
       </div>
