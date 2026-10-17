@@ -1,0 +1,10 @@
+{
+  "name": "AI Text Detective",
+  "description": "Scan camera captures, uploaded documents, images, or manual text to detect potential AI-generated writing with nuanced forensic analysis and detailed observations.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
