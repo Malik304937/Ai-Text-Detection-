@@ -90,19 +90,24 @@ export async function getAnalysisHistory(): Promise<HistoryRecord[]> {
   try {
     const db = await openDatabase();
     return new Promise((resolve) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.getAll();
+      try {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
 
-      req.onsuccess = () => {
-        const results = (req.result || []) as HistoryRecord[];
-        results.sort((a, b) => b.createdAt - a.createdAt);
-        resolve(results);
-      };
+        req.onsuccess = () => {
+          const results = (req.result || []) as HistoryRecord[];
+          results.sort((a, b) => b.createdAt - a.createdAt);
+          resolve(results);
+        };
 
-      req.onerror = () => {
+        req.onerror = () => {
+          resolve(getFromLocalStorage());
+        };
+      } catch (txErr) {
+        console.warn('IndexedDB transaction failed, using localStorage:', txErr);
         resolve(getFromLocalStorage());
-      };
+      }
     });
   } catch {
     const list = getFromLocalStorage();

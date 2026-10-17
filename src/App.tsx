@@ -92,28 +92,51 @@ export default function App() {
     refreshHistory();
   }, []);
 
+  const stateRef = React.useRef({
+    isSettingsOpen,
+    currentResult,
+    isReviewingText,
+    currentTab
+  });
+  stateRef.current = {
+    isSettingsOpen,
+    currentResult,
+    isReviewingText,
+    currentTab
+  };
+
   // Android Native Hardware Back Button Handler
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
-    const backButtonSub = CapApp.addListener('backButton', () => {
-      if (isSettingsOpen) {
+    let listenerHandle: any = null;
+    CapApp.addListener('backButton', () => {
+      const s = stateRef.current;
+      if (s.isSettingsOpen) {
         setIsSettingsOpen(false);
-      } else if (currentResult) {
+      } else if (s.currentResult) {
         setCurrentResult(null);
-      } else if (isReviewingText) {
+      } else if (s.isReviewingText) {
         setIsReviewingText(false);
-      } else if (currentTab !== 'workspace') {
+      } else if (s.currentTab !== 'workspace') {
         setCurrentTab('workspace');
       } else {
-        CapApp.minimizeApp();
+        CapApp.minimizeApp().catch(() => {});
       }
-    });
+    })
+      .then((handle) => {
+        listenerHandle = handle;
+      })
+      .catch((e) => console.warn('Capacitor backButton warning:', e));
 
     return () => {
-      backButtonSub.then(h => h.remove());
+      if (listenerHandle && typeof listenerHandle.remove === 'function') {
+        try {
+          listenerHandle.remove();
+        } catch {}
+      }
     };
-  }, [currentResult, isReviewingText, currentTab, isSettingsOpen]);
+  }, []);
 
   // Callback when text is extracted from Camera or File Upload
   const handleTextExtracted = (text: string, title?: string, source: SourceType = 'manual') => {
