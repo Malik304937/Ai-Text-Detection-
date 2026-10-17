@@ -1,4 +1,3 @@
-import { createWorker } from 'tesseract.js';
 import { OCRProgress } from '../types';
 
 let activeWorker: any = null;
@@ -9,14 +8,17 @@ export async function extractTextFromImage(
 ): Promise<string> {
   let worker: any = null;
   try {
-    onProgress?.({ status: 'Initializing OCR Engine...', progress: 0.1 });
+    onProgress?.({ status: 'Loading OCR Engine...', progress: 0.1 });
 
+    // Dynamic import to keep initial mobile bundle featherlight
+    const { createWorker } = await import('tesseract.js');
+
+    onProgress?.({ status: 'Initializing language models...', progress: 0.25 });
     worker = await createWorker('eng');
     activeWorker = worker;
 
-    onProgress?.({ status: 'Processing image & analyzing character layout...', progress: 0.3 });
+    onProgress?.({ status: 'Processing image & analyzing character layout...', progress: 0.45 });
 
-    // Preprocessing if it's a canvas or blob
     let finalSource: any = imageSource;
     if (imageSource instanceof HTMLCanvasElement) {
       finalSource = imageSource.toDataURL('image/png');

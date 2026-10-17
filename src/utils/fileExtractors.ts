@@ -1,17 +1,5 @@
-import * as pdfjsLib from 'pdfjs-dist';
-import mammoth from 'mammoth';
 import { extractTextFromImage } from './ocr';
 import { OCRProgress } from '../types';
-
-// Configure PDF.js worker
-if (typeof window !== 'undefined') {
-  try {
-    // Use worker from unpkg or cdnjs corresponding to pdfjs version
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-  } catch (e) {
-    console.warn('PDF worker setup notice:', e);
-  }
-}
 
 export interface FileExtractionResult {
   text: string;
@@ -28,7 +16,7 @@ export async function extractTextFromFile(
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   const mimeType = file.type || '';
 
-  // 1. Text files (.txt, .md, .csv, .json)
+  // 1. Plain text files (.txt, .md, .csv, .json)
   if (
     extension === 'txt' ||
     extension === 'md' ||
@@ -64,9 +52,11 @@ export async function extractTextFromFile(
     };
   }
 
-  // 3. Word Document (.docx)
+  // 3. Word Document (.docx) - Dynamically load mammoth
   if (extension === 'docx' || mimeType.includes('wordprocessingml')) {
-    onProgress?.({ status: 'Parsing DOCX document structure...', progress: 0.4 });
+    onProgress?.({ status: 'Loading DOCX parser engine...', progress: 0.2 });
+    const mammoth = (await import('mammoth')).default;
+    onProgress?.({ status: 'Parsing DOCX document structure...', progress: 0.6 });
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
     onProgress?.({ status: 'DOCX text extracted', progress: 1.0 });
@@ -79,9 +69,18 @@ export async function extractTextFromFile(
     };
   }
 
-  // 4. PDF (.pdf)
+  // 4. PDF (.pdf) - Dynamically load pdfjs-dist
   if (extension === 'pdf' || mimeType === 'application/pdf') {
-    onProgress?.({ status: 'Loading PDF document...', progress: 0.2 });
+    onProgress?.({ status: 'Loading PDF parsing engine...', progress: 0.15 });
+    const pdfjsLib = await import('pdfjs-dist');
+    
+    try {
+      if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      }
+    } catch {}
+
+    onProgress?.({ status: 'Reading PDF document pages...', progress: 0.3 });
     const arrayBuffer = await file.arrayBuffer();
 
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
@@ -92,7 +91,7 @@ export async function extractTextFromFile(
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
       onProgress?.({
         status: `Extracting page ${pageNum} of ${numPages}...`,
-        progress: 0.2 + (pageNum / numPages) * 0.75
+        progress: 0.3 + (pageNum / numPages) * 0.65
       });
       const page = await pdfDoc.getPage(pageNum);
       const textContent = await page.getTextContent();

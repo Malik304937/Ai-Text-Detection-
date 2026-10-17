@@ -63,17 +63,19 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
     };
   }, [stopCamera]);
 
-  // Enumerate devices for front/rear switching
-  useEffect(() => {
-    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-      navigator.mediaDevices
-        .enumerateDevices()
-        .then((devices) => {
-          const videoDevs = devices.filter((d) => d.kind === 'videoinput');
-          setAvailableDevices(videoDevs);
-        })
-        .catch(() => {});
-    }
+  // Camera devices will be enumerated only after the user starts the camera
+  const queryDevices = useCallback(() => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((devices) => {
+            const videoDevs = devices.filter((d) => d.kind === 'videoinput');
+            setAvailableDevices(videoDevs);
+          })
+          .catch(() => {});
+      }
+    } catch {}
   }, []);
 
   // Request native permission if on native Capacitor
@@ -124,10 +126,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onTextExtracted })
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(() => {});
       }
 
       setCameraState('streaming');
+      queryDevices();
     } catch (err: any) {
       console.error('Camera access error:', err);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {

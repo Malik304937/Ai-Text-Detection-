@@ -37,7 +37,7 @@ import { getApiEndpoint } from './utils/apiConfig';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'workspace' | 'history' | 'methodology'>('workspace');
-  const [activeInputMode, setActiveInputMode] = useState<SourceType>('camera');
+  const [activeInputMode, setActiveInputMode] = useState<SourceType>('manual');
 
   // Text review state before final analysis
   const [pendingText, setPendingText] = useState<string>('');

@@ -1,4 +1,3 @@
-import jsPDF from 'jspdf';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 import { AnalysisResult } from '../types';
@@ -73,7 +72,6 @@ export async function downloadTxtReport(result: AnalysisResult): Promise<void> {
   const content = generateTxtContent(result);
   const filename = `AI-Text-Detective-Report-${Date.now()}.txt`;
 
-  // On Native Android, trigger Share sheet if possible
   if (Capacitor.isNativePlatform()) {
     try {
       await Share.share({
@@ -83,7 +81,7 @@ export async function downloadTxtReport(result: AnalysisResult): Promise<void> {
       });
       return;
     } catch (e) {
-      // Fallback to web download
+      // Fallback
     }
   }
 
@@ -98,7 +96,10 @@ export async function downloadTxtReport(result: AnalysisResult): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export function buildPdfDocument(result: AnalysisResult): jsPDF {
+export async function buildPdfDocument(result: AnalysisResult): Promise<any> {
+  // Dynamically load jsPDF on demand
+  const { default: jsPDF } = await import('jspdf');
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
@@ -121,7 +122,7 @@ export function buildPdfDocument(result: AnalysisResult): jsPDF {
   };
 
   // Header Bar
-  doc.setFillColor(15, 23, 42); // slate-900
+  doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 75, 'F');
 
   doc.setTextColor(255, 255, 255);
@@ -131,7 +132,7 @@ export function buildPdfDocument(result: AnalysisResult): jsPDF {
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(148, 163, 184); // slate-400
+  doc.setTextColor(148, 163, 184);
   doc.text('Linguistic Stylometrics & Authorship Pattern Forensic Report', margin, 54);
 
   y = 95;
@@ -304,7 +305,6 @@ export function buildPdfDocument(result: AnalysisResult): jsPDF {
   );
   doc.text(discLines, margin + 10, y + 28);
 
-  // Footer on all pages
   const totalPages = (doc.internal as any).getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
@@ -322,10 +322,9 @@ export function buildPdfDocument(result: AnalysisResult): jsPDF {
 }
 
 export async function downloadPdfReport(result: AnalysisResult): Promise<void> {
-  const doc = buildPdfDocument(result);
+  const doc = await buildPdfDocument(result);
   const filename = `AI-Text-Detective-Report-${Date.now()}.pdf`;
 
-  // On Native Android, trigger Share Sheet if available
   if (Capacitor.isNativePlatform()) {
     try {
       const dataUri = doc.output('datauristring');
